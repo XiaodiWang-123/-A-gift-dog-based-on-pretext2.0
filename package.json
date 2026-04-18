@@ -1,0 +1,18 @@
+{
+  "name": "a-gift-dog-based-on-pretext2.0",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@chenglou/pretext": "^0.0.5"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "vite": "^7.1.3"
+  }
+}
