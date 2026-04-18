@@ -5,12 +5,6 @@ type ScreenName = 'home' | 'world' | 'notes' | 'diary' | 'little'
 type MessageSender = 'dog' | 'user' | 'system'
 type Language = 'en' | 'zh'
 
-type ChatMessage = {
-  id: string
-  sender: MessageSender
-  text: string
-}
-
 type NoteCard = {
   index: string
   title: string
@@ -21,6 +15,28 @@ type DiaryEntry = {
   day: string
   title: string
   body: string
+}
+
+type TranslatedChatToken =
+  | { kind: 'raw'; value: string }
+  | { kind: 'intro'; index: number }
+  | { kind: 'postTreat'; index: number }
+  | { kind: 'proud'; index: number }
+  | { kind: 'chatUserHowAreYou' }
+  | { kind: 'chatDogHowAreYou' }
+  | { kind: 'chatUserStay' }
+  | { kind: 'chatDogStay' }
+  | { kind: 'chatUserProud' }
+  | { kind: 'chatLate' }
+  | { kind: 'chatMorning' }
+  | { kind: 'stayed1' }
+  | { kind: 'stayed2' }
+  | { kind: 'treatUser'; treat: string }
+
+type ChatMessage = {
+  id: string
+  sender: MessageSender
+  token: TranslatedChatToken
 }
 
 type TranslationSet = {
@@ -596,10 +612,17 @@ let isNight = false
 let cycleIntervalId: number | null = null
 let messageCounter = 0
 let toastTimeout: number | null = null
+
 let cursorTargetX = window.innerWidth / 2
 let cursorTargetY = window.innerHeight / 2
 let cursorRenderX = cursorTargetX
 let cursorRenderY = cursorTargetY
+
+let pointerEffectsBound = false
+let cursorAnimationStarted = false
+let stayedTimerStarted = false
+
+let chatHistory: ChatMessage[] = []
 
 function getPrepared(text: string, font: string) {
   const key = `${font}__${text}`
@@ -631,6 +654,43 @@ function t(): TranslationSet {
   return copy[currentLanguage]
 }
 
+function resolveChatText(token: TranslatedChatToken): string {
+  const c = t()
+
+  switch (token.kind) {
+    case 'raw':
+      return token.value
+    case 'intro':
+      return c.introScript[token.index] ?? ''
+    case 'postTreat':
+      return c.postTreatLines[token.index] ?? ''
+    case 'proud':
+      return c.proudLines[token.index] ?? ''
+    case 'chatUserHowAreYou':
+      return c.chatUserHowAreYou
+    case 'chatDogHowAreYou':
+      return c.chatDogHowAreYou
+    case 'chatUserStay':
+      return c.chatUserStay
+    case 'chatDogStay':
+      return c.chatDogStay
+    case 'chatUserProud':
+      return c.chatUserProud
+    case 'chatLate':
+      return c.chatLate
+    case 'chatMorning':
+      return c.chatMorning
+    case 'stayed1':
+      return c.stayed1
+    case 'stayed2':
+      return c.stayed2
+    case 'treatUser':
+      return `${c.treatUserPrefix} ${token.treat}`
+    default:
+      return ''
+  }
+}
+
 function bubbleMetrics(text: string, maxWidth: number): { width: number; lineCount: number } {
   const font = `${PRETEXT_SIZE}px ${PRETEXT_FONT}`
   const prepared = getPrepared(text, font)
@@ -658,6 +718,8 @@ function bubbleMetrics(text: string, maxWidth: number): { width: number; lineCou
 
 function renderApp(): void {
   const c = t()
+
+  document.documentElement.lang = currentLanguage === 'zh' ? 'zh-CN' : 'en'
 
   const app = document.querySelector<HTMLDivElement>('#app')
   if (!app) throw new Error('#app not found')
@@ -730,7 +792,10 @@ function renderApp(): void {
           <div class="panel dog-stage">
             <div class="dog-card">
               <div class="dog-label">${escapeHtml(c.dogLabel)}</div>
-              <div class="dog-svg-wrap">
+              <div class="dog-svg-wrap" id="dogSvgWrap">
+                <span class="ear-spark left" aria-hidden="true"></span>
+                <span class="ear-spark right" aria-hidden="true"></span>
+
                 <button class="ear-hit left" id="leftEarHit" aria-label="left ear"></button>
                 <button class="ear-hit right" id="rightEarHit" aria-label="right ear"></button>
 
@@ -779,7 +844,7 @@ function renderApp(): void {
           <div class="chat-scroll" id="chatScroll"></div>
 
           <div>
-            <div class="treat-box" id="treatBox">
+            <div class="treat-box ${treatStepShown ? 'active' : ''}" id="treatBox">
               <p class="treat-title">${escapeHtml(c.treatTitle)}</p>
               <div class="treat-row">
                 <button class="treat-btn" data-treat="🍖">${escapeHtml(c.treat1)}</button>
@@ -884,8 +949,8 @@ function renderApp(): void {
   renderDiary()
   bindEvents()
   initStars()
+  initPointerEffects()
   initCursorDog()
-  initRepelZones()
   initRevealCards()
   restoreChatDom()
 }
@@ -973,47 +1038,56 @@ function initStars(): void {
   }
 }
 
+function handlePointerMove(event: MouseEvent): void {
+  cursorTargetX = event.clientX
+  cursorTargetY = event.clientY
+
+  const items = document.querySelectorAll<HTMLElement>('[data-repel]')
+  items.forEach(item => {
+    const rect = item.getBoundingClientRect()
+    const cx = rect.left + rect.width / 2
+    const cy = rect.top + rect.height / 2
+    const dx = cx - event.clientX
+    const dy = cy - event.clientY
+    const dist = Math.sqrt(dx * dx + dy * dy)
+    const maxDist = 140
+
+    if (dist < maxDist) {
+      const strength = (1 - dist / maxDist) * 8
+      const ox = (dx / Math.max(dist, 1)) * strength
+      const oy = (dy / Math.max(dist, 1)) * strength
+      item.style.transform = `translate(${ox}px, ${oy}px)`
+    } else {
+      item.style.transform = 'translate(0px, 0px)'
+    }
+  })
+}
+
+function initPointerEffects(): void {
+  if (pointerEffectsBound) return
+  pointerEffectsBound = true
+  document.addEventListener('mousemove', handlePointerMove, { passive: true })
+}
+
 function initCursorDog(): void {
   if (window.matchMedia('(max-width: 500px)').matches) return
+  if (cursorAnimationStarted) return
+
   const cursorDog = document.querySelector<HTMLDivElement>('#cursorDog')
   if (!cursorDog) return
 
-  window.onmousemove = event => {
-    cursorTargetX = event.clientX
-    cursorTargetY = event.clientY
-  }
+  cursorAnimationStarted = true
 
   const frame = () => {
-    cursorRenderX += (cursorTargetX - cursorRenderX) * 0.24
-    cursorRenderY += (cursorTargetY - cursorRenderY) * 0.24
-    cursorDog.style.transform = `translate3d(${cursorRenderX - 21}px, ${cursorRenderY - 21}px, 0)`
+    const liveCursorDog = document.querySelector<HTMLDivElement>('#cursorDog')
+    if (liveCursorDog) {
+      cursorRenderX += (cursorTargetX - cursorRenderX) * 0.24
+      cursorRenderY += (cursorTargetY - cursorRenderY) * 0.24
+      liveCursorDog.style.transform = `translate3d(${cursorRenderX - 21}px, ${cursorRenderY - 21}px, 0)`
+    }
     requestAnimationFrame(frame)
   }
   frame()
-}
-
-function initRepelZones(): void {
-  document.onmousemove = event => {
-    const items = document.querySelectorAll<HTMLElement>('[data-repel]')
-    items.forEach(item => {
-      const rect = item.getBoundingClientRect()
-      const cx = rect.left + rect.width / 2
-      const cy = rect.top + rect.height / 2
-      const dx = cx - event.clientX
-      const dy = cy - event.clientY
-      const dist = Math.sqrt(dx * dx + dy * dy)
-      const maxDist = 140
-
-      if (dist < maxDist) {
-        const strength = (1 - dist / maxDist) * 8
-        const ox = (dx / Math.max(dist, 1)) * strength
-        const oy = (dy / Math.max(dist, 1)) * strength
-        item.style.transform = `translate(${ox}px, ${oy}px)`
-      } else {
-        item.style.transform = 'translate(0px, 0px)'
-      }
-    })
-  }
 }
 
 function initRevealCards(): void {
@@ -1024,18 +1098,37 @@ function initRevealCards(): void {
   })
 }
 
-function showToast(text: string): void {
+function showToast(text: string, options?: { mobileTop?: boolean }): void {
   const siteToast = document.querySelector<HTMLDivElement>('#siteToast')
   if (!siteToast) return
+
+  siteToast.classList.remove('show', 'mobile-top')
+  if (options?.mobileTop) siteToast.classList.add('mobile-top')
+
   siteToast.innerHTML = `<strong>${escapeHtml(t().toastPrefix)}</strong><br>${escapeHtml(text)}`
   siteToast.classList.add('show')
 
   if (toastTimeout !== null) {
     window.clearTimeout(toastTimeout)
   }
+
   toastTimeout = window.setTimeout(() => {
-    siteToast.classList.remove('show')
+    siteToast.classList.remove('show', 'mobile-top')
   }, 2600)
+}
+
+function triggerEarEffect(side: 'left' | 'right'): void {
+  const wrap = document.querySelector<HTMLDivElement>('#dogSvgWrap')
+  if (!wrap) return
+
+  const className = side === 'left' ? 'ear-left-active' : 'ear-right-active'
+  wrap.classList.remove('ear-left-active', 'ear-right-active')
+  void wrap.offsetWidth
+  wrap.classList.add(className)
+
+  window.setTimeout(() => {
+    wrap.classList.remove(className)
+  }, 720)
 }
 
 function updateNightState(): void {
@@ -1064,7 +1157,7 @@ function setNightMode(nextNight: boolean): void {
   updateNightState()
 
   if (worldStarted) {
-    appendSystemMessage(isNight ? t().chatLate : t().chatMorning)
+    appendMessage('system', nextNight ? { kind: 'chatLate' } : { kind: 'chatMorning' })
   }
 }
 
@@ -1079,6 +1172,8 @@ function createBubble(message: ChatMessage): HTMLElement {
   const chatScroll = document.querySelector<HTMLDivElement>('#chatScroll')
   if (!chatScroll) throw new Error('#chatScroll not found')
 
+  const text = resolveChatText(message.token)
+
   const row = document.createElement('div')
   row.className = `bubble-row ${message.sender === 'user' ? 'user' : ''}`
 
@@ -1091,10 +1186,10 @@ function createBubble(message: ChatMessage): HTMLElement {
 
   const bubble = document.createElement('div')
   bubble.className = 'bubble'
-  bubble.textContent = message.text
+  bubble.textContent = text
 
   const widthLimit = Math.min(BUBBLE_MAX_WIDTH, Math.max(220, chatScroll.clientWidth - 90))
-  const metrics = bubbleMetrics(message.text, widthLimit)
+  const metrics = bubbleMetrics(text, widthLimit)
   bubble.style.width = `${metrics.width}px`
   bubble.style.minHeight = `${metrics.lineCount * PRETEXT_LINE_HEIGHT + BUBBLE_PAD_Y}px`
 
@@ -1121,22 +1216,20 @@ function createTypingBubble(): HTMLElement {
   return row
 }
 
-let chatHistory: ChatMessage[] = []
-
 function scrollChatToBottom(): void {
   const chatScroll = document.querySelector<HTMLDivElement>('#chatScroll')
   if (!chatScroll) return
   chatScroll.scrollTop = chatScroll.scrollHeight
 }
 
-function appendMessage(sender: MessageSender, text: string): void {
+function appendMessage(sender: MessageSender, token: TranslatedChatToken): void {
   const chatScroll = document.querySelector<HTMLDivElement>('#chatScroll')
   if (!chatScroll) return
 
-  const message = {
+  const message: ChatMessage = {
     id: `m${messageCounter++}`,
     sender,
-    text,
+    token,
   }
   chatHistory.push(message)
 
@@ -1148,6 +1241,7 @@ function appendMessage(sender: MessageSender, text: string): void {
 function restoreChatDom(): void {
   const chatScroll = document.querySelector<HTMLDivElement>('#chatScroll')
   if (!chatScroll) return
+
   chatScroll.innerHTML = ''
   for (const msg of chatHistory) {
     chatScroll.appendChild(createBubble(msg))
@@ -1155,11 +1249,7 @@ function restoreChatDom(): void {
   scrollChatToBottom()
 }
 
-function appendSystemMessage(text: string): void {
-  appendMessage('system', text)
-}
-
-async function addDogLine(text: string, delayBefore = 480): Promise<void> {
+async function addDogLine(token: TranslatedChatToken, delayBefore = 480): Promise<void> {
   const chatScroll = document.querySelector<HTMLDivElement>('#chatScroll')
   if (!chatScroll) return
 
@@ -1168,7 +1258,7 @@ async function addDogLine(text: string, delayBefore = 480): Promise<void> {
   scrollChatToBottom()
   await wait(delayBefore)
   typing.remove()
-  appendMessage('dog', text)
+  appendMessage('dog', token)
 }
 
 async function runIntroScript(): Promise<void> {
@@ -1176,7 +1266,7 @@ async function runIntroScript(): Promise<void> {
   chatRunning = true
 
   for (let index = 0; index < t().introScript.length; index++) {
-    await addDogLine(t().introScript[index]!, 420 + (index % 3) * 140)
+    await addDogLine({ kind: 'intro', index }, 420 + (index % 3) * 140)
 
     if (index === t().introScript.length - 1) {
       treatStepShown = true
@@ -1195,31 +1285,31 @@ async function handleTreat(treat: string): Promise<void> {
   const treatBox = document.querySelector<HTMLDivElement>('#treatBox')
   if (treatBox) treatBox.classList.remove('active')
 
-  appendMessage('user', `${t().treatUserPrefix} ${treat}`)
+  appendMessage('user', { kind: 'treatUser', treat })
   await wait(220)
 
-  for (const line of t().postTreatLines) {
-    await addDogLine(line, 350)
+  for (let index = 0; index < t().postTreatLines.length; index++) {
+    await addDogLine({ kind: 'postTreat', index }, 350)
   }
 }
 
 async function handleHowAreYou(): Promise<void> {
-  appendMessage('user', t().chatUserHowAreYou)
+  appendMessage('user', { kind: 'chatUserHowAreYou' })
   await wait(220)
-  await addDogLine(t().chatDogHowAreYou, 420)
+  await addDogLine({ kind: 'chatDogHowAreYou' }, 420)
 }
 
 async function handleStayABit(): Promise<void> {
-  appendMessage('user', t().chatUserStay)
+  appendMessage('user', { kind: 'chatUserStay' })
   await wait(220)
-  await addDogLine(t().chatDogStay, 420)
+  await addDogLine({ kind: 'chatDogStay' }, 420)
 }
 
 async function handleProud(): Promise<void> {
-  appendMessage('user', t().chatUserProud)
+  appendMessage('user', { kind: 'chatUserProud' })
   await wait(220)
-  for (const line of t().proudLines) {
-    await addDogLine(line, 340)
+  for (let index = 0; index < t().proudLines.length; index++) {
+    await addDogLine({ kind: 'proud', index }, 340)
   }
 }
 
@@ -1243,6 +1333,9 @@ function startWorld(): void {
 }
 
 function startStayedTimer(): void {
+  if (stayedTimerStarted) return
+  stayedTimerStarted = true
+
   window.setTimeout(async () => {
     if (stayedMessageShown) return
     stayedMessageShown = true
@@ -1252,8 +1345,8 @@ function startStayedTimer(): void {
       return
     }
 
-    await addDogLine(t().stayed1, 420)
-    await addDogLine(t().stayed2, 420)
+    await addDogLine({ kind: 'stayed1' }, 420)
+    await addDogLine({ kind: 'stayed2' }, 420)
   }, 30_000)
 }
 
@@ -1296,23 +1389,35 @@ function bindEvents(): void {
     jumpNotesBtn.onclick = () => setScreen('notes')
   }
 
-  const earHandler = () => {
-    showToast(randomFrom(t().earSecrets))
+  const leftEarHandler = () => {
+    triggerEarEffect('left')
+    showToast(randomFrom(t().earSecrets), { mobileTop: true })
   }
 
-  if (leftEarHit) leftEarHit.onclick = earHandler
-  if (rightEarHit) rightEarHit.onclick = earHandler
+  const rightEarHandler = () => {
+    triggerEarEffect('right')
+    showToast(randomFrom(t().earSecrets), { mobileTop: true })
+  }
+
+  if (leftEarHit) leftEarHit.onclick = leftEarHandler
+  if (rightEarHit) rightEarHit.onclick = rightEarHandler
 
   if (howAreYouBtn) {
-    howAreYouBtn.onclick = () => handleHowAreYou().catch(console.error)
+    howAreYouBtn.onclick = () => {
+      handleHowAreYou().catch(console.error)
+    }
   }
 
   if (stayABitBtn) {
-    stayABitBtn.onclick = () => handleStayABit().catch(console.error)
+    stayABitBtn.onclick = () => {
+      handleStayABit().catch(console.error)
+    }
   }
 
   if (proudBtn) {
-    proudBtn.onclick = () => handleProud().catch(console.error)
+    proudBtn.onclick = () => {
+      handleProud().catch(console.error)
+    }
   }
 
   document.querySelectorAll<HTMLButtonElement>('[data-treat]').forEach(button => {
