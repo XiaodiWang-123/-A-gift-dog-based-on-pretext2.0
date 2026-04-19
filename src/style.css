@@ -432,6 +432,20 @@ body.night .stars {
   filter: blur(12px);
 }
 
+.dog-mode-timer {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  z-index: 4;
+  padding: 8px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--panel-strong) 90%, white 10%);
+  box-shadow: var(--shadow-soft);
+  font: 700 12px/1 "SF Mono", ui-monospace, monospace;
+  color: var(--ink);
+}
+
 .dog-card {
   display: grid;
   gap: 12px;
@@ -547,13 +561,15 @@ body.night .stars {
   display: grid;
   grid-template-rows: auto 1fr auto;
   gap: 14px;
+  min-width: 0;
 }
 
 .chat-head {
-  display: flex;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 14px;
   align-items: start;
+  min-width: 0;
 }
 
 .chat-head-title {
@@ -569,11 +585,18 @@ body.night .stars {
 
 .dog-status-badge {
   padding: 9px 11px;
-  border-radius: 999px;
+  border-radius: 18px;
   border: 1px solid var(--line);
   background: color-mix(in srgb, var(--panel-strong) 84%, white 16%);
-  font: 700 11px/1 "SF Mono", ui-monospace, monospace;
-  white-space: nowrap;
+  font: 700 11px/1.25 "SF Mono", ui-monospace, monospace;
+  white-space: normal;
+  max-width: 118px;
+  min-width: 92px;
+  overflow: visible;
+  text-overflow: unset;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  text-align: center;
 }
 
 .chat-scroll {
@@ -584,6 +607,7 @@ body.night .stars {
   flex-direction: column;
   gap: 12px;
   scroll-behavior: smooth;
+  min-width: 0;
 }
 
 .bubble-row {
@@ -591,10 +615,13 @@ body.night .stars {
   width: 100%;
   gap: 10px;
   align-items: flex-end;
+  padding-right: 4px;
+  min-width: 0;
 }
 
 .bubble-row.user {
   justify-content: flex-end;
+  padding-left: 36px;
 }
 
 .bubble-avatar {
@@ -612,6 +639,7 @@ body.night .stars {
 
 .bubble {
   max-width: 84%;
+  min-width: 0;
   min-height: 46px;
   border-radius: 22px;
   padding: 14px 16px;
@@ -622,6 +650,8 @@ body.night .stars {
   line-height: 1.5;
   font-size: 15px;
   animation: bubbleIn 360ms cubic-bezier(.2,.9,.2,1);
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .bubble-row.user .bubble {
@@ -664,6 +694,7 @@ body.night .stars {
   border-radius: 22px;
   border: 1px dashed color-mix(in srgb, var(--accent) 34%, var(--line) 66%);
   background: color-mix(in srgb, var(--accent-soft) 44%, var(--panel) 56%);
+  min-width: 0;
 }
 
 .treat-box.active {
@@ -673,21 +704,43 @@ body.night .stars {
 .treat-title {
   margin: 0 0 12px;
   font: 700 14px/1.4 "Helvetica Neue", Helvetica, Arial, sans-serif;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .treat-row,
-.chat-actions,
 .top-nav {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
 }
 
+.chat-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  min-width: 0;
+}
+
+.chat-actions .mini-pill:last-child {
+  grid-column: 1 / -1;
+}
+
 .mini-pill,
 .treat-btn,
 .surprise-btn {
   padding: 11px 13px;
-  font: 700 12px/1 "Helvetica Neue", Helvetica, Arial, sans-serif;
+  font: 700 12px/1.25 "Helvetica Neue", Helvetica, Arial, sans-serif;
+  min-width: 0;
+}
+
+.mini-pill,
+.treat-btn {
+  width: 100%;
+  white-space: normal;
+  text-align: center;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .sticky-side {
@@ -698,6 +751,7 @@ body.night .stars {
 
 .sticky-box {
   padding: 16px;
+  min-width: 0;
 }
 
 .sticky-head h3 {
@@ -844,11 +898,13 @@ body.night .stars {
 }
 
 .site-toast {
-  position: fixed;
-  right: 16px;
-  bottom: 16px;
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: calc(env(safe-area-inset-bottom) + 82px);
   z-index: 120;
-  max-width: 260px;
+  width: auto;
+  max-width: none;
   padding: 14px 16px;
   border-radius: 18px;
   border: 1px solid var(--line);
@@ -857,13 +913,23 @@ body.night .stars {
   line-height: 1.55;
   font-size: 13px;
   opacity: 0;
-  transform: translateY(10px);
+  transform: translateY(12px);
   pointer-events: none;
   transition: opacity 220ms ease, transform 220ms ease;
 }
 
 .site-toast.show {
   opacity: 1;
+  transform: translateY(0);
+}
+
+.site-toast.mobile-top {
+  top: calc(env(safe-area-inset-top) + 12px);
+  bottom: auto;
+  transform: translateY(-12px);
+}
+
+.site-toast.mobile-top.show {
   transform: translateY(0);
 }
 
@@ -890,6 +956,12 @@ body.night .stars {
     padding: 0;
     align-items: stretch;
   }
+  .dog-status-badge {
+    max-width: 104px;
+    min-width: 86px;
+    font-size: 10px;
+    padding: 8px 10px;
+  }
 
   .phone-frame {
     width: 100vw;
@@ -915,21 +987,34 @@ body.night .stars {
     top: calc(env(safe-area-inset-top) + 8px);
   }
 
-  .site-toast.mobile-top {
-    left: 50%;
-    right: auto;
-    bottom: auto;
-    top: calc(env(safe-area-inset-top) + 12px);
-    transform: translate(-50%, -10px);
-    width: min(calc(100vw - 24px), 340px);
-    max-width: none;
-  }
-
-  .site-toast.mobile-top.show {
-    transform: translate(-50%, 0);
+  .site-toast {
+    left: 12px;
+    right: 12px;
+    width: auto;
   }
 
   .bottom-nav {
     bottom: calc(env(safe-area-inset-bottom) + 8px);
+  }
+
+  .treat-row {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .chat-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .chat-actions .mini-pill:last-child {
+    grid-column: auto;
+  }
+
+  .dog-mode-timer {
+    top: 12px;
+    right: 12px;
+    padding: 7px 10px;
+    font-size: 11px;
   }
 }
